@@ -1,0 +1,926 @@
+// =====================================================================
+// ECHELON UNITED FC — DATABASE SCHEMA
+// Postgres via Prisma. Run `npm run db:push` after setting DATABASE_URL.
+// =====================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------
+// AUTH / USERS / ROLES
+// ---------------------------------------------------------------------
+
+enum Role {
+  PLAYER
+  COACH
+  ADMIN
+}
+
+enum PlayerStatus {
+  ACTIVE
+  INJURED
+  SUSPENDED
+  ON_LOAN
+  INACTIVE
+}
+
+enum Position {
+  GOALKEEPER
+  DEFENDER
+  MIDFIELDER
+  ATTACKER
+}
+
+enum PreferredFoot {
+  LEFT
+  RIGHT
+  BOTH
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  passwordHash   String
+  role           Role      @default(PLAYER)
+  name           String
+  avatarUrl      String?
+  phone          String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // password reset
+  resetToken     String?
+  resetTokenExp  DateTime?
+
+  // relations
+  playerProfile          PlayerProfile?
+  notifications          Notification[]
+  notificationPrefs      NotificationPreference?
+  announcementsCreated   Announcement[]          @relation("AnnouncementAuthor")
+  eventsCreated          Event[]                 @relation("EventCreator")
+  matchesCreated         Match[]                 @relation("MatchCreator")
+  workoutsCreated        Workout[]               @relation("WorkoutCreator")
+  workoutReviews         WorkoutSubmission[]     @relation("ReviewedBy")
+  performanceUpdatedBy   PerformanceStat[]       @relation("PerformanceUpdatedBy")
+  wellnessCheckins       WellnessCheckin[]
+  injuryReports          InjuryReport[]
+  weightEntries          WeightEntry[]
+  documentsUploaded      Document[]              @relation("DocumentUploader")
+  learningItemsUploaded  LearningItem[]          @relation("LearningUploader")
+  learningProgress       LearningProgress[]
+  videosUploaded         Video[]                 @relation("VideoUploader")
+  pollsCreated           Poll[]                  @relation("PollCreator")
+  pollResponses          PollResponse[]
+  achievementsAwarded    PlayerAchievement[]     @relation("AwardedBy")
+  chatMessages           ChatMessage[]
+  chatMemberships        ChatChannelMember[]
+  payments               Payment[]
+  attendanceRecords      AttendanceRecord[]
+}
+
+model PlayerProfile {
+  id             String         @id @default(cuid())
+  userId         String         @unique
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  jerseyNumber   Int?
+  position       Position?
+  preferredFoot  PreferredFoot?
+  heightCm       Float?
+  dateOfBirth    DateTime?
+  status         PlayerStatus   @default(ACTIVE)
+  bio            String?
+
+  squadId        String?
+  squad          Squad?         @relation(fields: [squadId], references: [id])
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  weightEntries       WeightEntry[]
+  performanceStats    PerformanceStat[]
+  wellnessCheckins    WellnessCheckin[]
+  injuryReports       InjuryReport[]
+  workoutAssignments  WorkoutAssignment[]
+  eventAssignments    EventAssignment[]
+  achievements        PlayerAchievement[]
+  attendanceRecords   AttendanceRecord[]
+  payments            Payment[]
+  matchAppearances    MatchAppearance[]
+  learningProgress    LearningProgress[]
+}
+
+model Squad {
+  id          String          @id @default(cuid())
+  name        String          @unique // e.g. "First Team", "U21s"
+  description String?
+  createdAt   DateTime        @default(now())
+
+  players     PlayerProfile[]
+  events      Event[]
+  workouts    WorkoutAssignment[]
+  announcements Announcement[]
+}
+
+// ---------------------------------------------------------------------
+// WEIGHT TRACKING
+// ---------------------------------------------------------------------
+
+model WeightEntry {
+  id              String        @id @default(cuid())
+  playerProfileId String
+  playerProfile   PlayerProfile @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+  recordedById    String
+  recordedBy      User          @relation(fields: [recordedById], references: [id])
+
+  weightKg   Float
+  date       DateTime @default(now())
+  note       String?
+
+  createdAt  DateTime @default(now())
+
+  @@index([playerProfileId, date])
+}
+
+// ---------------------------------------------------------------------
+// PERFORMANCE
+// ---------------------------------------------------------------------
+
+model PerformanceStat {
+  id              String        @id @default(cuid())
+  playerProfileId String
+  playerProfile   PlayerProfile @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+  updatedById     String
+  updatedBy       User          @relation("PerformanceUpdatedBy", fields: [updatedById], references: [id])
+
+  periodLabel     String   // e.g. "2026-08" or "Season 2026/27"
+  matchesPlayed   Int      @default(0)
+  starts          Int      @default(0)
+  goals           Int      @default(0)
+  assists         Int      @default(0)
+  minutesPlayed   Int      @default(0)
+  cleanSheets     Int      @default(0)
+  trainingAttendancePct Float @default(0)
+  fitnessScore    Float?   // 0-100
+  coachRating     Float?   // 0-10
+  notes           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([playerProfileId, periodLabel])
+}
+
+// ---------------------------------------------------------------------
+// CALENDAR / EVENTS / MATCHES
+// ---------------------------------------------------------------------
+
+enum EventType {
+  TRAINING
+  MATCH
+  TEAM_EVENT
+  OTHER
+}
+
+model Event {
+  id          String    @id @default(cuid())
+  title       String
+  type        EventType
+  date        DateTime
+  startTime   DateTime
+  endTime     DateTime?
+  location    String?
+  description String?
+  notes       String?
+
+  squadId     String?
+  squad       Squad?    @relation(fields: [squadId], references: [id])
+
+  matchId     String?   @unique
+  match       Match?    @relation(fields: [matchId], references: [id])
+
+  createdById String
+  createdBy   User      @relation("EventCreator", fields: [createdById], references: [id])
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  assignments      EventAssignment[]
+  attendanceRecords AttendanceRecord[]
+  payments         Payment[]
+}
+
+// If set, event is targeted to specific players rather than (or in addition to) a squad
+model EventAssignment {
+  id              String        @id @default(cuid())
+  eventId         String
+  event           Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  playerProfileId String
+  playerProfile   PlayerProfile @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, playerProfileId])
+}
+
+enum AttendanceStatus {
+  ATTENDING
+  UNAVAILABLE
+  MAYBE
+  PENDING
+}
+
+model AttendanceRecord {
+  id              String           @id @default(cuid())
+  eventId         String
+  event           Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  playerProfileId String
+  playerProfile   PlayerProfile    @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User             @relation(fields: [userId], references: [id])
+
+  status          AttendanceStatus @default(PENDING)
+  respondedAt     DateTime?
+  markedByCoach   Boolean          @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([eventId, playerProfileId])
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  POSTPONED
+  CANCELLED
+}
+
+enum HomeAway {
+  HOME
+  AWAY
+  NEUTRAL
+}
+
+model Match {
+  id           String      @id @default(cuid())
+  opponent     String
+  competition  String?
+  date         DateTime
+  kickoff      DateTime
+  venue        String?
+  homeAway     HomeAway    @default(HOME)
+  status       MatchStatus @default(SCHEDULED)
+  description  String?
+
+  homeScore    Int?
+  awayScore    Int?
+  matchReport  String?
+
+  createdById  String
+  createdBy    User        @relation("MatchCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event        Event?
+  appearances  MatchAppearance[]
+  media        MatchMedia[]
+  payments     Payment[]
+}
+
+enum AppearanceRole {
+  STARTER
+  SUBSTITUTE
+  UNUSED_SUB
+  NOT_SQUAD
+}
+
+model MatchAppearance {
+  id              String         @id @default(cuid())
+  matchId         String
+  match           Match          @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  playerProfileId String
+  playerProfile   PlayerProfile  @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+
+  role            AppearanceRole @default(NOT_SQUAD)
+  minutesPlayed   Int            @default(0)
+  goals           Int            @default(0)
+  assists         Int            @default(0)
+  yellowCards     Int            @default(0)
+  redCards        Int            @default(0)
+  ratingOutOf10   Float?
+
+  @@unique([matchId, playerProfileId])
+}
+
+enum MediaType {
+  PHOTO
+  VIDEO
+}
+
+model MatchMedia {
+  id       String    @id @default(cuid())
+  matchId  String
+  match    Match     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  type     MediaType
+  url      String
+  caption  String?
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------
+// PAYMENTS
+// ---------------------------------------------------------------------
+
+enum PaymentStatus {
+  UNPAID
+  PENDING
+  PAID
+  WAIVED
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  playerProfileId String
+  playerProfile   PlayerProfile @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+
+  eventId         String?
+  event           Event?        @relation(fields: [eventId], references: [id])
+  matchId         String?
+  match           Match?        @relation(fields: [matchId], references: [id])
+
+  label           String   // e.g. "Match fee", "Transport"
+  amountMinor     Int      // stored in minor units (pence) to avoid float errors
+  currency        String   @default("GBP")
+  status          PaymentStatus @default(UNPAID)
+  dueDate         DateTime?
+  paidAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------
+// TRAINING PLANS / WORKOUTS / VERIFICATION
+// ---------------------------------------------------------------------
+
+model TrainingPlanDay {
+  id          String   @id @default(cuid())
+  dayOfWeek   Int      // 0=Sunday .. 6=Saturday
+  focus       String   // e.g. "Strength", "Speed", "Recovery"
+  description String?
+  squadId     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum AssignmentTarget {
+  EVERYONE
+  SQUAD
+  INDIVIDUAL
+}
+
+enum WorkoutStatus {
+  ASSIGNED
+  IN_PROGRESS
+  VIDEO_SUBMITTED
+  UNDER_REVIEW
+  VERIFIED
+  NEEDS_REVISION
+  OVERDUE
+}
+
+model Workout {
+  id           String   @id @default(cuid())
+  title        String
+  description  String?
+  date         DateTime
+  deadline     DateTime?
+  instructions String?
+  coachNotes   String?
+  videoDemoUrl String?
+
+  targetType   AssignmentTarget @default(EVERYONE)
+  squadId      String?
+
+  createdById  String
+  createdBy    User     @relation("WorkoutCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  exercises   WorkoutExercise[]
+  assignments WorkoutAssignment[]
+}
+
+model WorkoutExercise {
+  id         String  @id @default(cuid())
+  workoutId  String
+  workout    Workout @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+
+  name       String
+  sets       Int?
+  reps       String?  // string to allow "12" or "30 sec" etc.
+  durationSec Int?
+  restSec    Int?
+  order      Int      @default(0)
+}
+
+model WorkoutAssignment {
+  id              String        @id @default(cuid())
+  workoutId       String
+  workout         Workout       @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  playerProfileId String
+  playerProfile   PlayerProfile @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+  squadId         String?
+  squad           Squad?        @relation(fields: [squadId], references: [id])
+
+  status          WorkoutStatus @default(ASSIGNED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  submissions WorkoutSubmission[]
+
+  @@unique([workoutId, playerProfileId])
+}
+
+model WorkoutSubmission {
+  id                    String            @id @default(cuid())
+  workoutAssignmentId   String
+  workoutAssignment     WorkoutAssignment @relation(fields: [workoutAssignmentId], references: [id], onDelete: Cascade)
+
+  videoUrl              String
+  playerNote            String?
+
+  submittedAt           DateTime          @default(now())
+
+  reviewedById          String?
+  reviewedBy            User?             @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt            DateTime?
+  reviewStatus          WorkoutStatus     @default(VIDEO_SUBMITTED) // VERIFIED or NEEDS_REVISION once reviewed
+  coachFeedback         String?
+}
+
+// ---------------------------------------------------------------------
+// WELLNESS / INJURY
+// ---------------------------------------------------------------------
+
+enum WellnessFeeling {
+  GREAT
+  SLIGHTLY_FATIGUED
+  TIRED
+  NOT_WELL
+  INJURED
+  UNABLE_TO_TRAIN
+}
+
+model WellnessCheckin {
+  id              String          @id @default(cuid())
+  playerProfileId String
+  playerProfile   PlayerProfile   @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User            @relation(fields: [userId], references: [id])
+
+  feeling         WellnessFeeling
+  sleepQuality    Int?  // 1-5
+  sorenessLevel   Int?  // 1-5
+  note            String?
+
+  createdAt DateTime @default(now())
+
+  @@index([playerProfileId, createdAt])
+}
+
+enum BodyArea {
+  HEAD
+  NECK
+  SHOULDER
+  CHEST
+  BACK
+  LOWER_BACK
+  HIP
+  GROIN
+  THIGH
+  KNEE
+  CALF
+  ANKLE
+  FOOT
+  OTHER
+}
+
+enum InjuryStatus {
+  REPORTED
+  ASSESSING
+  RECOVERING
+  CLEARED
+}
+
+model InjuryReport {
+  id              String       @id @default(cuid())
+  playerProfileId String
+  playerProfile   PlayerProfile @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+
+  bodyArea        BodyArea
+  painLevel       Int      // 1-10
+  onsetDate       DateTime
+  mechanism       String?  // how it happened
+  occurredDuring  String?  // "training" | "match" | "outside" etc.
+  canWalk         Boolean  @default(true)
+  canTrain        Boolean  @default(false)
+  canPlay         Boolean  @default(false)
+  description     String?
+  mediaUrl        String?
+
+  status          InjuryStatus @default(REPORTED)
+  coachNotes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------
+// ANNOUNCEMENTS / NOTIFICATIONS
+// ---------------------------------------------------------------------
+
+enum AnnouncementCategory {
+  IMPORTANT
+  MATCH
+  TRAINING
+  GENERAL
+  URGENT
+}
+
+model Announcement {
+  id          String               @id @default(cuid())
+  title       String
+  message     String
+  category    AnnouncementCategory @default(GENERAL)
+  priority    Int                  @default(0) // higher = more urgent
+
+  targetType  AssignmentTarget     @default(EVERYONE)
+  squadId     String?
+  squad       Squad?               @relation(fields: [squadId], references: [id])
+
+  authorId    String
+  author      User                 @relation("AnnouncementAuthor", fields: [authorId], references: [id])
+
+  attachmentUrl String?
+
+  createdAt DateTime @default(now())
+}
+
+enum NotificationType {
+  ANNOUNCEMENT
+  TRAINING_REMINDER
+  MATCH_REMINDER
+  LOCATION_CHANGE
+  WORKOUT_ASSIGNED
+  WORKOUT_APPROVED
+  WORKOUT_REVISION
+  LEARNING_CONTENT
+  POLL_AVAILABLE
+  PAYMENT_REMINDER
+  GENERAL
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      NotificationType
+  title     String
+  body      String
+  link      String?
+
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
+
+model NotificationPreference {
+  id     String  @id @default(cuid())
+  userId String  @unique
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  pushEnabled          Boolean @default(false)
+  announcements        Boolean @default(true)
+  trainingReminders    Boolean @default(true)
+  matchReminders       Boolean @default(true)
+  workoutUpdates       Boolean @default(true)
+  learningContent      Boolean @default(true)
+  polls                Boolean @default(true)
+  paymentReminders     Boolean @default(true)
+  pushSubscriptionJson String? // stores Web Push subscription object
+}
+
+// ---------------------------------------------------------------------
+// LEARNING HUB
+// ---------------------------------------------------------------------
+
+enum LearningCategory {
+  FOOTBALL_TACTICAL
+  FOOTBALL_POSITIONAL
+  FOOTBALL_TECHNICAL
+  FOOTBALL_SET_PIECES
+  FOOTBALL_ANALYSIS
+  FITNESS_STRENGTH
+  FITNESS_SPEED
+  FITNESS_MOBILITY
+  FITNESS_RECOVERY
+  NUTRITION_HYDRATION
+  NUTRITION_MATCHDAY
+  NUTRITION_RECOVERY
+  MENTAL_FOCUS
+  MENTAL_CONFIDENCE
+  MENTAL_PRESSURE
+  MENTAL_PREPARATION
+}
+
+enum LearningContentType {
+  VIDEO
+  PDF
+  ARTICLE
+  IMAGE
+  LINK
+  DOCUMENT
+}
+
+model LearningItem {
+  id          String               @id @default(cuid())
+  title       String
+  description String?
+  category    LearningCategory
+  contentType LearningContentType
+  url         String
+  durationMin Int?
+
+  uploadedById String
+  uploadedBy   User    @relation("LearningUploader", fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  progress LearningProgress[]
+}
+
+model LearningProgress {
+  id              String        @id @default(cuid())
+  learningItemId  String
+  learningItem    LearningItem  @relation(fields: [learningItemId], references: [id], onDelete: Cascade)
+  playerProfileId String
+  playerProfile   PlayerProfile @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+
+  completed  Boolean  @default(false)
+  completedAt DateTime?
+
+  @@unique([learningItemId, playerProfileId])
+}
+
+// ---------------------------------------------------------------------
+// TEAM CHAT
+// ---------------------------------------------------------------------
+
+model ChatChannel {
+  id          String   @id @default(cuid())
+  name        String   @unique // General, First Team, Matchday, Training, Coaches
+  description String?
+  coachesOnly Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+
+  members  ChatChannelMember[]
+  messages ChatMessage[]
+}
+
+model ChatChannelMember {
+  id        String      @id @default(cuid())
+  channelId String
+  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt DateTime?
+
+  @@unique([channelId, userId])
+}
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  channelId String
+  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User        @relation(fields: [authorId], references: [id])
+
+  body      String?
+  imageUrl  String?
+  fileUrl   String?
+  fileName  String?
+
+  isDeleted Boolean  @default(false) // moderation soft-delete
+  createdAt DateTime @default(now())
+
+  @@index([channelId, createdAt])
+}
+
+// ---------------------------------------------------------------------
+// DOCUMENTS
+// ---------------------------------------------------------------------
+
+enum DocumentCategory {
+  TEAM_RULES
+  CODE_OF_CONDUCT
+  TRAINING_GUIDELINES
+  NUTRITION_GUIDE
+  FORMS
+  POLICIES
+  OTHER
+}
+
+model Document {
+  id          String           @id @default(cuid())
+  title       String
+  category    DocumentCategory
+  // Storage object path (Supabase Storage), NOT a public URL. Documents are
+  // served via short-lived signed URLs generated on demand in the download
+  // route, so a stored path never goes stale even if the bucket is private.
+  // NOTE: this repurposes the original `fileUrl` column name/type (String) —
+  // no migration-breaking rename, only the semantics of what's stored in it
+  // changed, from "a URL" to "a storage path". Genuinely new column: fileName.
+  fileUrl     String
+  fileName    String? // original uploaded file name, shown to users on download
+  description String?
+
+  uploadedById String
+  uploadedBy   User @relation("DocumentUploader", fields: [uploadedById], references: [id])
+
+  // if empty, visible to everyone
+  restrictedToCoachesOnly Boolean @default(false)
+
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------
+// POLLS & SURVEYS
+// ---------------------------------------------------------------------
+
+enum PollQuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  RATING
+}
+
+model Poll {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  questionType PollQuestionType @default(SINGLE_CHOICE)
+  options     String[] // for choice types; empty for rating
+  isAnonymous Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  closesAt    DateTime?
+
+  createdById String
+  createdBy   User     @relation("PollCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  responses PollResponse[]
+}
+
+model PollResponse {
+  id       String @id @default(cuid())
+  pollId   String
+  poll     Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+
+  selectedOptions String[] // choice answers
+  ratingValue     Int?     // rating answers
+
+  createdAt DateTime @default(now())
+
+  @@unique([pollId, userId])
+}
+
+// ---------------------------------------------------------------------
+// VIDEO LIBRARY
+// ---------------------------------------------------------------------
+
+enum VideoCategory {
+  TRAINING
+  MATCH_FOOTAGE
+  COACHING
+  PLAYER_FEEDBACK
+  TACTICAL_ANALYSIS
+  SKILLS
+}
+
+model Video {
+  id           String        @id @default(cuid())
+  title        String
+  description  String?
+  category     VideoCategory
+  url          String
+  thumbnailUrl String?
+  tags         String[]
+
+  relatedMatchId String?
+  relatedPlayerProfileId String?
+
+  uploadedById String
+  uploadedBy   User @relation("VideoUploader", fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------
+// ACHIEVEMENTS
+// ---------------------------------------------------------------------
+
+model Achievement {
+  id          String  @id @default(cuid())
+  title       String  @unique
+  description String?
+  iconKey     String? // maps to an icon in the frontend
+
+  createdAt DateTime @default(now())
+
+  awarded PlayerAchievement[]
+}
+
+model PlayerAchievement {
+  id              String        @id @default(cuid())
+  achievementId   String
+  achievement     Achievement   @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  playerProfileId String
+  playerProfile   PlayerProfile @relation(fields: [playerProfileId], references: [id], onDelete: Cascade)
+
+  awardedById String
+  awardedBy   User   @relation("AwardedBy", fields: [awardedById], references: [id])
+  awardedAt   DateTime @default(now())
+
+  @@unique([achievementId, playerProfileId])
+}
+
+// ---------------------------------------------------------------------
+// LEADERBOARDS
+//
+// Leaderboards themselves are computed on the fly from existing models
+// (AttendanceRecord, WorkoutAssignment, PerformanceStat, MatchAppearance) —
+// there's nothing to store for the rankings. The one genuinely missing
+// piece was admin control over which boards players can see, so this is
+// the one small schema extension this session adds: a single settings row
+// per leaderboard key, defaulting to visible.
+// ---------------------------------------------------------------------
+
+enum LeaderboardKey {
+  ATTENDANCE
+  WORKOUTS_COMPLETED
+  LEARNING_MODULES
+  GOALS
+  ASSISTS
+  MATCH_APPEARANCES
+  FITNESS_SCORE
+}
+
+model LeaderboardSetting {
+  id      String         @id @default(cuid())
+  key     LeaderboardKey @unique
+  visible Boolean        @default(true)
+
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------
+// CLUB SETTINGS
+//
+// Single-row table (id is always fixed at "club") holding club-wide info
+// admins can edit from /admin/settings. Deliberately kept small — club
+// branding (colors/fonts) stays in tailwind.config.ts by design, and
+// roles are the fixed Role enum, not something to CRUD here.
+// ---------------------------------------------------------------------
+
+model ClubSettings {
+  id           String   @id @default("club")
+  clubName     String   @default("Echelon United FC")
+  contactEmail String?
+  timezone     String   @default("UTC")
+
+  updatedAt DateTime @updatedAt
+}

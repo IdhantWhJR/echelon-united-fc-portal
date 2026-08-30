@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-line;
+  }
+  html {
+    color-scheme: dark;
+  }
+  body {
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  ::selection {
+    background-color: rgba(217, 166, 46, 0.35);
+    color: #fff;
+  }
+
+  /* Visible keyboard focus everywhere — never suppressed. */
+  :focus-visible {
+    outline: 2px solid #d9a62e;
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Slim, quiet scrollbars that fit the dark surface. */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2a2b2f;
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a3b40;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Eyebrow label used above section headings across the app — the
+     signature "scoreboard" typographic device: uppercase, wide-tracked,
+     hairline-underscored. */
+  .eyebrow {
+    @apply font-display text-[11px] font-semibold uppercase tracking-widest2 text-gold;
+  }
+
+  .card {
+    @apply rounded-lg border border-line bg-ink-800 shadow-card;
+  }
+
+  .stat-figure {
+    @apply font-mono tabular-nums;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-gold-fade
+      px-4 py-2.5 font-display text-sm font-semibold uppercase tracking-wide text-ink
+      shadow-pop transition-transform duration-150 hover:brightness-110 active:scale-[0.98]
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-line
+      bg-ink-700 px-4 py-2.5 font-display text-sm font-semibold uppercase tracking-wide
+      text-paper transition-colors duration-150 hover:border-gold-deep hover:text-gold
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .input-field {
+    @apply w-full rounded-md border border-line bg-ink-900 px-3.5 py-2.5 text-sm text-paper
+      placeholder:text-paper-faint transition-colors focus:border-gold outline-none;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-[11px]
+      font-semibold uppercase tracking-wide;
+  }
+
+  /* Skip-to-content link — visually hidden until focused via keyboard,
+     then pinned to the top-left corner above everything else. */
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100]
+      focus:rounded-md focus:bg-gold focus:px-4 focus:py-2.5 focus:font-display
+      focus:text-sm focus:font-semibold focus:uppercase focus:tracking-wide focus:text-ink
+      focus:shadow-pop;
+  }
+}
