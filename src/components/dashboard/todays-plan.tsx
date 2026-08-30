@@ -3,7 +3,7 @@ import { Icon } from "@/components/icons";
 
 export type PlanItem = {
   id: string;
-  kind: "TRAINING" | "MATCH" | "TEAM_EVENT" | "WORKOUT" | "LEARNING";
+  kind: "TRAINING" | "MATCH" | "TEAM_EVENT" | "OTHER" | "WORKOUT";
   title: string;
   subtitle?: string;
   time?: string;
@@ -13,8 +13,8 @@ const KIND_META: Record<PlanItem["kind"], { label: string; icon: string; color: 
   TRAINING: { label: "Training", icon: "activity", color: "text-gold" },
   MATCH: { label: "Match", icon: "shield", color: "text-gold" },
   TEAM_EVENT: { label: "Event", icon: "calendar", color: "text-signal-info" },
+  OTHER: { label: "Event", icon: "calendar", color: "text-signal-info" },
   WORKOUT: { label: "Workout", icon: "activity", color: "text-signal-warn" },
-  LEARNING: { label: "Learning", icon: "book", color: "text-signal-info" },
 };
 
 export function TodaysPlan({ items, today }: { items: PlanItem[]; today: Date }) {
